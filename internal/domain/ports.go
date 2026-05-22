@@ -40,7 +40,7 @@ type TaskRepository interface {
 	GetForUpdate(ctx context.Context, id uuid.UUID) (Task, error)
 	List(ctx context.Context, f TaskFilter) (items []Task, total int64, err error)
 	Create(ctx context.Context, t Task) (Task, error)
-	UpdateAssignee(ctx context.Context, id, assignee uuid.UUID) error
+	UpdateAssignee(ctx context.Context, id, assignee uuid.UUID) (Task, error)
 	Update(ctx context.Context, t Task) (Task, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }

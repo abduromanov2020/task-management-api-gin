@@ -13,7 +13,7 @@ SELECT * FROM tasks WHERE id = $1 FOR UPDATE;
 SELECT *, count(*) OVER () AS total
 FROM tasks
 WHERE team_id = @team_id
-  AND (@status_filter::task_status IS NULL OR status = @status_filter)
+  AND (sqlc.narg('status_filter')::task_status IS NULL OR status = sqlc.narg('status_filter')::task_status)
   AND (@q::text = '' OR title ILIKE '%' || @q || '%')
 ORDER BY created_at DESC
 LIMIT @lim
@@ -30,10 +30,11 @@ SET title       = $2,
 WHERE id = $1
 RETURNING *;
 
--- name: UpdateTaskAssignee :exec
+-- name: UpdateTaskAssignee :one
 UPDATE tasks
 SET assignee_id = $2, updated_at = now()
-WHERE id = $1;
+WHERE id = $1
+RETURNING *;
 
 -- name: DeleteTask :exec
 DELETE FROM tasks WHERE id = $1;

@@ -136,21 +136,21 @@ func (r *TaskRepo) Create(_ context.Context, t domain.Task) (domain.Task, error)
 	atomic.AddInt64(&r.insertCount, 1)
 	return t, nil
 }
-func (r *TaskRepo) UpdateAssignee(_ context.Context, id, assignee uuid.UUID) error {
+func (r *TaskRepo) UpdateAssignee(_ context.Context, id, assignee uuid.UUID) (domain.Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.failNextOn == "UpdateAssignee" {
 		r.failNextOn = ""
-		return errFakeFailure
+		return domain.Task{}, errFakeFailure
 	}
 	t, ok := r.tasks[id]
 	if !ok {
-		return domain.ErrNotFound
+		return domain.Task{}, domain.ErrNotFound
 	}
 	t.AssigneeID = &assignee
 	t.UpdatedAt = time.Now().UTC()
 	r.tasks[id] = t
-	return nil
+	return t, nil
 }
 func (r *TaskRepo) Update(_ context.Context, t domain.Task) (domain.Task, error) {
 	r.mu.Lock()

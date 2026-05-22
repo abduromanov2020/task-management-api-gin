@@ -205,12 +205,13 @@ func (u *TaskUsecase) Assign(ctx context.Context, actor domain.Actor, taskID, as
 		if assignee.TeamID != actor.TeamID {
 			return apperr.Forbidden("Cannot assign to a user outside your team")
 		}
-		if err := r.Tasks.UpdateAssignee(ctx, taskID, assigneeID); err != nil {
-			return err
-		}
 		prevAssignee := ""
 		if t.AssigneeID != nil {
 			prevAssignee = t.AssigneeID.String()
+		}
+		updated, err := r.Tasks.UpdateAssignee(ctx, taskID, assigneeID)
+		if err != nil {
+			return err
 		}
 		if err := r.TaskLogs.Insert(ctx, domain.TaskLog{
 			TaskID:  taskID,
@@ -225,8 +226,7 @@ func (u *TaskUsecase) Assign(ctx context.Context, actor domain.Actor, taskID, as
 		}); err != nil {
 			return err
 		}
-		t.AssigneeID = &assigneeID
-		out = ToTaskView(t)
+		out = ToTaskView(updated)
 		return nil
 	})
 	if err == nil {

@@ -116,7 +116,7 @@ const listTasks = `-- name: ListTasks :many
 SELECT id, team_id, created_by, assignee_id, title, description, status, priority, due_date, created_at, updated_at, count(*) OVER () AS total
 FROM tasks
 WHERE team_id = $1
-  AND ($2::task_status IS NULL OR status = $2)
+  AND ($2::task_status IS NULL OR status = $2::task_status)
   AND ($3::text = '' OR title ILIKE '%' || $3 || '%')
 ORDER BY created_at DESC
 LIMIT $5
@@ -125,7 +125,7 @@ OFFSET $4
 
 type ListTasksParams struct {
 	TeamID       uuid.UUID
-	StatusFilter TaskStatus
+	StatusFilter *TaskStatus
 	Q            string
 	Off          int32
 	Lim          int32
@@ -232,10 +232,11 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, e
 	return i, err
 }
 
-const updateTaskAssignee = `-- name: UpdateTaskAssignee :exec
+const updateTaskAssignee = `-- name: UpdateTaskAssignee :one
 UPDATE tasks
 SET assignee_id = $2, updated_at = now()
 WHERE id = $1
+RETURNING id, team_id, created_by, assignee_id, title, description, status, priority, due_date, created_at, updated_at
 `
 
 type UpdateTaskAssigneeParams struct {
@@ -243,7 +244,21 @@ type UpdateTaskAssigneeParams struct {
 	AssigneeID *uuid.UUID
 }
 
-func (q *Queries) UpdateTaskAssignee(ctx context.Context, arg UpdateTaskAssigneeParams) error {
-	_, err := q.db.Exec(ctx, updateTaskAssignee, arg.ID, arg.AssigneeID)
-	return err
+func (q *Queries) UpdateTaskAssignee(ctx context.Context, arg UpdateTaskAssigneeParams) (Task, error) {
+	row := q.db.QueryRow(ctx, updateTaskAssignee, arg.ID, arg.AssigneeID)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.CreatedBy,
+		&i.AssigneeID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

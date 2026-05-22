@@ -30,9 +30,10 @@ func (r *TaskRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (domain.Task,
 }
 
 func (r *TaskRepo) List(ctx context.Context, f domain.TaskFilter) ([]domain.Task, int64, error) {
-	statusFilter := sqlcdb.TaskStatus("")
+	var statusFilter *sqlcdb.TaskStatus
 	if f.Status != nil {
-		statusFilter = sqlcdb.TaskStatus(*f.Status)
+		v := sqlcdb.TaskStatus(*f.Status)
+		statusFilter = &v
 	}
 	rows, err := r.q.ListTasks(ctx, sqlcdb.ListTasksParams{
 		TeamID:       f.TeamID,
@@ -70,11 +71,15 @@ func (r *TaskRepo) Create(ctx context.Context, t domain.Task) (domain.Task, erro
 	return taskFromSqlc(created), nil
 }
 
-func (r *TaskRepo) UpdateAssignee(ctx context.Context, id, assignee uuid.UUID) error {
-	return mapErr(r.q.UpdateTaskAssignee(ctx, sqlcdb.UpdateTaskAssigneeParams{
+func (r *TaskRepo) UpdateAssignee(ctx context.Context, id, assignee uuid.UUID) (domain.Task, error) {
+	updated, err := r.q.UpdateTaskAssignee(ctx, sqlcdb.UpdateTaskAssigneeParams{
 		ID:         id,
 		AssigneeID: &assignee,
-	}))
+	})
+	if err != nil {
+		return domain.Task{}, mapErr(err)
+	}
+	return taskFromSqlc(updated), nil
 }
 
 func (r *TaskRepo) Update(ctx context.Context, t domain.Task) (domain.Task, error) {

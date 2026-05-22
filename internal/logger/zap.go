@@ -17,21 +17,21 @@ var redactedKeys = map[string]struct{}{
 	"token": {}, "jwt": {}, "secret": {},
 }
 
-func New(level, env string) (*zap.Logger, error) {
+// New builds a zap logger that always emits structured JSON, regardless of
+// env, because the assignment requires JSON structured logs in every mode.
+// Level is configurable via LOG_LEVEL.
+func New(level, _env string) (*zap.Logger, error) {
 	lvl, err := zapcore.ParseLevel(strings.ToLower(level))
 	if err != nil {
 		lvl = zapcore.InfoLevel
 	}
 	cfg := zap.NewProductionConfig()
-	if env == "development" {
-		cfg.Encoding = "console"
-		cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
 	cfg.Level = zap.NewAtomicLevelAt(lvl)
 	cfg.EncoderConfig.TimeKey = "ts"
 	cfg.EncoderConfig.MessageKey = "msg"
 	cfg.EncoderConfig.LevelKey = "level"
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	cfg.EncoderConfig.EncodeLevel = zapcore.LowercaseLevelEncoder
 	cfg.DisableStacktrace = true
 	return cfg.Build()
 }
