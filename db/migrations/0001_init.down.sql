@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS task_logs;
+DROP TABLE IF EXISTS tasks;
+DROP TYPE  IF EXISTS task_priority;
+DROP TYPE  IF EXISTS task_status;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS teams;
