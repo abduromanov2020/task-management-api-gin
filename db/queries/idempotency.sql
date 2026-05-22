@@ -12,8 +12,10 @@ SET request_hash     = EXCLUDED.request_hash,
     lease_expires_at = EXCLUDED.lease_expires_at,
     status_code      = 0,
     response_body    = NULL
-WHERE idempotency_keys.status_code = 0
-  AND idempotency_keys.lease_expires_at < now()
+WHERE (idempotency_keys.status_code = 0
+       AND idempotency_keys.lease_expires_at < now())
+   OR (idempotency_keys.status_code != 0
+       AND idempotency_keys.created_at < now() - interval '24 hours')
 RETURNING (xmax = 0) AS acquired,
           status_code, response_body, request_hash;
 
