@@ -123,22 +123,30 @@ func TestCreateTask_Idempotency_100ConcurrentSameKey(t *testing.T) {
 	require.Equal(t, 201, winnerStatus)
 }
 
-// TestCreateTask_DifferentBody_SameKey rejects key-reuse with a different
-// payload — guards against client bugs that would otherwise return stale data.
-func TestCreateTask_DifferentBody_SameKey(t *testing.T) {
-	uc, _, _, _, _, _ := newUC(t)
+// TestCreateTask_DifferentBody_SameKey_ReturnsFirstResponse codifies the
+// spec contract: any retry with the same key inside the 24h window must
+// return the original response and must NOT create a new task, even if the
+// payload differs. The implementation logs a warning when a body mismatch
+// happens so an operator can spot client bugs without affecting the response.
+func TestCreateTask_DifferentBody_SameKey_ReturnsFirstResponse(t *testing.T) {
+	uc, tasks, _, _, _, _ := newUC(t)
 	actor := domain.Actor{UserID: uuid.New(), TeamID: uuid.New()}
 	key := uuid.New()
 
-	_, err := uc.Create(context.Background(), actor, key, sampleInput())
+	first, err := uc.Create(context.Background(), actor, key, sampleInput())
 	require.NoError(t, err)
+	require.Equal(t, int64(1), tasks.InsertCount())
 
 	tampered := sampleInput()
 	tampered.Title = "buy bread"
-	_, err = uc.Create(context.Background(), actor, key, tampered)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, domain.ErrIdemMismatch),
-		"expected ErrIdemMismatch, got %v", err)
+	tampered.Priority = "low"
+	second, err := uc.Create(context.Background(), actor, key, tampered)
+	require.NoError(t, err)
+	require.Equal(t, first.StatusCode, second.StatusCode)
+	require.JSONEq(t, string(first.Body), string(second.Body),
+		"second call with same key must replay the first response verbatim")
+	require.Equal(t, int64(1), tasks.InsertCount(),
+		"no new task may be created even when the body differs")
 }
 
 // TestCreateTask_BodyShape ensures the response body matches the TaskView

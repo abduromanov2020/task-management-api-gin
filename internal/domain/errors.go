@@ -10,6 +10,5 @@ var (
 	ErrForbidden        = errors.New("forbidden")
 	ErrUnauthorized     = errors.New("unauthorized")
 	ErrValidation       = errors.New("validation")
-	ErrIdemMismatch     = errors.New("idempotency key reused with different body")
 	ErrIdemInFlight     = errors.New("idempotency key currently in-flight")
 )

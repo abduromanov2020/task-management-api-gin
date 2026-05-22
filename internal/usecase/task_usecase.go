@@ -60,8 +60,16 @@ func (u *TaskUsecase) Create(ctx context.Context, actor domain.Actor, idemKey uu
 		case acq.InFlight:
 			return domain.ErrIdemInFlight
 		case acq.Completed:
+			// Spec: any request with the same key within the 24h window must
+			// return the original response without creating a new task,
+			// regardless of body. We log a warning if the body differs from
+			// the original so an operator can spot client bugs in retries.
 			if acq.StoredHash != hash {
-				return domain.ErrIdemMismatch
+				u.log.Warn("idempotency.body_mismatch",
+					"event", "idempotency.body_mismatch",
+					"user_id", actor.UserID,
+					"idempotency_key", idemKey,
+				)
 			}
 			out = CreateTaskResult{StatusCode: acq.StatusCode, Body: acq.ResponseBody}
 			u.log.Info("idempotency.hit",

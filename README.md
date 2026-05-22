@@ -103,9 +103,9 @@ curl -X POST http://localhost:8080/auth/register \
 
 `POST /tasks` requires an `Idempotency-Key` header in UUID format. The server treats the same key (per user) as the same logical request:
 
-- A second call within the 24-hour window with the same key **and the same body** returns the original `201` response byte-for-byte.
-- A second call with the same key but a **different body** returns `422 IDEMPOTENCY_KEY_MISMATCH`.
+- A second call within the 24-hour window with the same key returns the original `201` response byte-for-byte and does **not** create a new task. This holds regardless of whether the request body matches the first call; if the body differs the server still replays the original response and logs `event=idempotency.body_mismatch` at WARN so operators can spot client bugs.
 - A second call while the first is still in flight returns `409 IDEMPOTENCY_IN_FLIGHT`.
+- After 24 hours the key becomes reclaimable and a fresh `POST` with the same key creates a new task.
 
 ---
 

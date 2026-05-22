@@ -53,10 +53,6 @@ func Conflict(msg string) *AppError     { return New(http.StatusConflict, "CONFL
 func Internal(cause error) *AppError {
 	return Wrap(http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error", cause)
 }
-func IdemMismatch() *AppError {
-	return New(http.StatusUnprocessableEntity, "IDEMPOTENCY_KEY_MISMATCH",
-		"Idempotency-Key was reused with a different request body")
-}
 func IdemInFlight() *AppError {
 	return New(http.StatusConflict, "IDEMPOTENCY_IN_FLIGHT",
 		"A request with this Idempotency-Key is still being processed")
@@ -83,8 +79,6 @@ func From(err error) *AppError {
 		return Wrap(http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required", err)
 	case errors.Is(err, domain.ErrValidation):
 		return Wrap(http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Invalid input", err)
-	case errors.Is(err, domain.ErrIdemMismatch):
-		return IdemMismatch()
 	case errors.Is(err, domain.ErrIdemInFlight):
 		return IdemInFlight()
 	default:
