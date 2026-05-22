@@ -107,35 +107,23 @@ curl -X POST http://localhost:8080/auth/register \
 - A second call while the first is still in flight returns `409 IDEMPOTENCY_IN_FLIGHT`.
 - After 24 hours the key becomes reclaimable and a fresh `POST` with the same key creates a new task.
 
+![Idempotency sequence: fresh insert and replay within 24h](docs/images/idempotency-sequence.png)
+
 ---
 
 ## Architecture
 
-```
-                ┌─────────────┐
-HTTP ──▶  Gin ─▶│  middleware │ request_id, access log (zap),
-                │             │ recovery, error envelope, security headers,
-                │             │ body limit, CORS, auth (JWT), rate-limit /auth/*
-                └──────┬──────┘
-                       │ c.Error(err)  /  c.JSON
-                ┌──────▼──────┐
-                │   handler   │  Gin DTOs (binding tags) → usecase inputs
-                └──────┬──────┘
-                ┌──────▼──────┐
-                │   usecase   │  business logic; depends only on domain ports
-                │             │  (no gin, no pgx, no zap imports)
-                └──────┬──────┘
-                       │ interfaces in internal/domain
-                ┌──────▼──────┐
-                │ repository  │  pgx + sqlc-generated typed queries
-                │     pg      │  UnitOfWork wraps pgx.BeginTxFunc
-                └──────┬──────┘
-                ┌──────▼──────┐
-                │  PostgreSQL │
-                └─────────────┘
-```
+![Layered architecture: middleware chain, then handler → usecase → repository, with domain as the shared port package](docs/images/architecture-layered.png)
+
+Solid arrows are runtime call flow, dotted arrows are compile-time dependencies on `domain`. The usecase layer importing nothing from Gin, pgx, or zap is what makes the hand-written mocks possible.
 
 Request lifecycle: `RequestID → AccessLog → Recovery → ErrorHandler → SecurityHeaders → BodyLimit → CORS → (route group → Auth | RateLimit) → handler → usecase → repository`.
+
+### Transactional assign
+
+`POST /tasks/:id/assign` chains four steps inside `pgx.BeginTxFunc`. Any returned error rolls all of them back atomically.
+
+![Assign transaction: SELECT FOR UPDATE, validate, UPDATE assignee, INSERT into task_logs, Notify, COMMIT — all rolled back together on error](docs/images/assign-transaction-sequence.png)
 
 ### Design notes
 
@@ -230,6 +218,21 @@ make test-race    # with -race (requires CGO)
 
 Tests live in `internal/usecase/*_test.go` and use hand-written fakes in `internal/usecase/mocks/`. No database is required. CI runs them with the race detector on every PR.
 
+The mocks expose a `txSnapshotter` interface and the fake `UnitOfWork.InTx` snapshots every repository's state before the closure runs, then restores those snapshots if the closure returns an error. That makes the rollback assertions in the assign tests real assertions about transactional behaviour, not just "the error was returned".
+
+Coverage summary:
+
+| Test | What it proves |
+|---|---|
+| `TestCreateTask_Idempotency_Sequential` | Same key, same body, second call returns identical bytes; only one task row exists |
+| `TestCreateTask_Idempotency_100ConcurrentSameKey` | 100 goroutines on the same key produce exactly one task; every successful caller gets identical bytes; in-flight callers see `ErrIdemInFlight` |
+| `TestCreateTask_DifferentBody_SameKey_ReturnsFirstResponse` | Same key, different body, still replays the first response and creates no new task (per spec) |
+| `TestCreateTask_BodyShape` | Response JSON matches the documented `TaskView` schema |
+| `TestAssignTask_HappyPath` | Assign updates assignee, writes `task_logs`, fires notifier |
+| `TestAssignTask_CrossTeam_Forbidden` | Assign to a user outside the actor's team is 403, with no DB mutation |
+| `TestAssignTask_RollsBack_OnLogFailure` | `task_logs` insert failure rolls the assignee mutation back too |
+| `TestAssignTask_NotifierFailure_RollsBack` | Notifier failure (last step) rolls the assignee mutation AND the `task_logs` row back |
+
 ### Race-condition test (the rubric centerpiece)
 
 `internal/usecase/task_usecase_test.go::TestCreateTask_Idempotency_100ConcurrentSameKey` fires 100 goroutines at `TaskUsecase.Create` with the same `Idempotency-Key`. The test asserts:
@@ -282,7 +285,7 @@ docker compose exec -T postgres psql -U postgres -d tasks -c \
 |----------------------|---------------------------------------------------------------------------|----------------------------------------|
 | `PORT`               | `8080`                                                                    |                                        |
 | `LOG_LEVEL`          | `info`                                                                    | `debug`/`info`/`warn`/`error`          |
-| `ENV`                | `development`                                                             | `production` activates `gin.ReleaseMode` and JSON-only encoder |
+| `ENV`                | `development`                                                             | `production` activates `gin.ReleaseMode`. Log encoding is JSON in every mode (assignment requires structured logs). |
 | `DATABASE_URL`       | -                                                                         | Required. e.g. `postgres://user:pass@host:5432/db?sslmode=disable` |
 | `DB_MAX_CONNS`       | `20`                                                                      |                                        |
 | `DB_MIN_CONNS`       | `2`                                                                       |                                        |

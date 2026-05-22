@@ -63,18 +63,10 @@ func TestAssignTask_CrossTeam_Forbidden(t *testing.T) {
 	require.Equal(t, 0, notif.Count(), "no notification when forbidden")
 }
 
-// TestAssignTask_RollsBack_OnLogFailure proves the assign flow is properly
-// transactional: when the task_logs insert fails, the assignee mutation is
-// rolled back too. (The mock UoW doesn't actually rollback DB state — it
-// just runs the closure — so we verify by checking the recorded calls.)
-//
-// In the mock, UpdateAssignee mutates the in-memory task even though the tx
-// is supposed to roll back. That mismatch with real Postgres is acceptable
-// for a usecase-layer test: the contract we're verifying is "if logs fail,
-// the assign usecase returns an error AND the assignee mutation should not
-// be observable to the caller". We assert by checking the *return value*
-// from Assign (which would carry the new assignee only if everything
-// succeeded). For a tighter assertion we configure FailNext on the log repo.
+// TestAssignTask_RollsBack_OnLogFailure proves the assign flow is fully
+// transactional: when the task_logs insert fails, the prior assignee
+// mutation must be rolled back too — no row in task_logs, no notification,
+// and the task's assignee unchanged.
 func TestAssignTask_RollsBack_OnLogFailure(t *testing.T) {
 	uc, tasks, _, logs, notif, users := newUC(t)
 	teamID := uuid.New()
@@ -95,11 +87,14 @@ func TestAssignTask_RollsBack_OnLogFailure(t *testing.T) {
 	require.Equal(t, uuid.UUID{}, view.ID, "no view on failure path")
 	require.Equal(t, 0, logs.Count(), "task_logs row must not be present after failed insert")
 	require.Equal(t, 0, notif.Count(), "notification must not have fired after a failed log insert")
+
+	t2, _ := tasks.GetByID(context.Background(), created.ID)
+	require.Equal(t, creator.ID, *t2.AssigneeID, "assignee must be reverted by rollback")
 }
 
 // TestAssignTask_NotifierFailure_RollsBack — the notifier is the last step in
-// the tx; if it errors, the assign flow must propagate that and (in a real
-// DB) the assignee + log roll back.
+// the tx; if it errors, the assignee mutation AND the task_logs insert must
+// both be rolled back, leaving no observable side effect.
 func TestAssignTask_NotifierFailure_RollsBack(t *testing.T) {
 	uc, tasks, _, logs, notif, users := newUC(t)
 	teamID := uuid.New()
@@ -118,5 +113,9 @@ func TestAssignTask_NotifierFailure_RollsBack(t *testing.T) {
 	_, err = uc.Assign(context.Background(), actor, created.ID, assignee.ID)
 	require.Error(t, err)
 	require.False(t, errors.Is(err, domain.ErrForbidden), "should not be forbidden")
-	require.Equal(t, 1, logs.Count(), "log was inserted before notifier ran")
+	require.Equal(t, 0, logs.Count(), "task_logs row must be rolled back when notifier fails")
+	require.Equal(t, 0, notif.Count(), "no notification recorded after a failed notify")
+
+	t2, _ := tasks.GetByID(context.Background(), created.ID)
+	require.Equal(t, creator.ID, *t2.AssigneeID, "assignee must be reverted by rollback")
 }

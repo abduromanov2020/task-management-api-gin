@@ -17,6 +17,16 @@ import (
 	"github.com/abduromanov2020/tasks-api/internal/domain"
 )
 
+// txSnapshotter lets the fake UoW capture each repo's state at the start of a
+// transaction and restore it if the closure returns an error. This mirrors
+// pgx.BeginTxFunc rollback semantics closely enough that usecase-layer tests
+// can verify atomicity of multi-step flows (e.g. assign = update + log + notify).
+// Note: snapshotting is not safe under interleaved transactions in the same
+// repo — fine for these tests because rollback paths are exercised sequentially.
+type txSnapshotter interface {
+	snapshot() func()
+}
+
 // --- Users ------------------------------------------------------------------
 
 type UserRepo struct {
@@ -52,6 +62,25 @@ func (r *UserRepo) GetByEmail(_ context.Context, email string) (domain.User, err
 	}
 	return u, nil
 }
+func (r *UserRepo) snapshot() func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	byID := make(map[uuid.UUID]domain.User, len(r.byID))
+	for k, v := range r.byID {
+		byID[k] = v
+	}
+	byEm := make(map[string]domain.User, len(r.byEm))
+	for k, v := range r.byEm {
+		byEm[k] = v
+	}
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.byID = byID
+		r.byEm = byEm
+	}
+}
+
 func (r *UserRepo) Create(_ context.Context, u domain.User) (domain.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -92,6 +121,24 @@ func NewTaskRepo() *TaskRepo { return &TaskRepo{tasks: map[uuid.UUID]domain.Task
 func (r *TaskRepo) FailNextOn(op string) { r.mu.Lock(); r.failNextOn = op; r.mu.Unlock() }
 
 func (r *TaskRepo) InsertCount() int64 { return atomic.LoadInt64(&r.insertCount) }
+
+func (r *TaskRepo) snapshot() func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := make(map[uuid.UUID]domain.Task, len(r.tasks))
+	for k, v := range r.tasks {
+		snap[k] = v
+	}
+	snapInsert := atomic.LoadInt64(&r.insertCount)
+	snapFailOn := r.failNextOn
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.tasks = snap
+		atomic.StoreInt64(&r.insertCount, snapInsert)
+		r.failNextOn = snapFailOn
+	}
+}
 
 func (r *TaskRepo) GetByID(_ context.Context, id uuid.UUID) (domain.Task, error) {
 	r.mu.Lock()
@@ -194,6 +241,19 @@ func (r *TaskLogRepo) FailNext() { r.mu.Lock(); r.failNext = true; r.mu.Unlock()
 
 func (r *TaskLogRepo) Count() int { r.mu.Lock(); defer r.mu.Unlock(); return len(r.logs) }
 
+func (r *TaskLogRepo) snapshot() func() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	snap := append([]domain.TaskLog(nil), r.logs...)
+	snapFail := r.failNext
+	return func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.logs = snap
+		r.failNext = snapFail
+	}
+}
+
 func (r *TaskLogRepo) Insert(_ context.Context, log domain.TaskLog) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -220,6 +280,19 @@ func (n *Notifier) Count() int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return len(n.sent)
+}
+
+func (n *Notifier) snapshot() func() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	snap := append([]domain.Notification(nil), n.sent...)
+	snapFail := n.failNext
+	return func() {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		n.sent = snap
+		n.failNext = snapFail
+	}
 }
 func (n *Notifier) Notify(_ context.Context, e domain.Notification) error {
 	n.mu.Lock()
@@ -286,6 +359,21 @@ func (m *IdemRepo) Acquire(_ context.Context, user, key uuid.UUID, hash string) 
 	}, nil
 }
 
+func (m *IdemRepo) snapshot() func() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snap := make(map[idemKey]*idemRec, len(m.data))
+	for k, v := range m.data {
+		rec := *v
+		snap[k] = &rec
+	}
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.data = snap
+	}
+}
+
 func (m *IdemRepo) Complete(_ context.Context, user, key uuid.UUID, status int, body json.RawMessage) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -313,11 +401,26 @@ func NewUoW(users domain.UserRepository, teams domain.TeamRepository,
 	}}
 }
 
-// InTx in this fake simply runs the closure with the same repo set. Real DB
-// rollback semantics are not modeled — assertion-based tests verify side
-// effects (counts, recorded calls) instead.
+// InTx models pgx.BeginTxFunc: snapshot every participating repo, run the
+// closure, and restore each snapshot if the closure returns a non-nil error.
+// This lets usecase-layer tests prove that a failure midway through a
+// multi-step flow (assign = update + log + notify) leaves no observable
+// side effect — the same atomicity contract Postgres gives us in prod.
 func (u *UoW) InTx(ctx context.Context, fn func(domain.TxRepos) error) error {
-	return fn(u.repos)
+	candidates := []any{u.repos.Users, u.repos.Tasks, u.repos.TaskLogs, u.repos.Notifier, u.repos.Idem}
+	restorers := make([]func(), 0, len(candidates))
+	for _, c := range candidates {
+		if s, ok := c.(txSnapshotter); ok {
+			restorers = append(restorers, s.snapshot())
+		}
+	}
+	err := fn(u.repos)
+	if err != nil {
+		for _, restore := range restorers {
+			restore()
+		}
+	}
+	return err
 }
 
 func (u *UoW) Repos() domain.TxRepos { return u.repos }
