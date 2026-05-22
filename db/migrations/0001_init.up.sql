@@ -55,7 +55,7 @@ CREATE TABLE idempotency_keys (
     idempotency_key  UUID NOT NULL,
     request_hash     TEXT NOT NULL,
     status_code      INT  NOT NULL DEFAULT 0,
-    response_body    JSONB,
+    response_body    BYTEA,
     lease_expires_at TIMESTAMPTZ NOT NULL,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, idempotency_key)
