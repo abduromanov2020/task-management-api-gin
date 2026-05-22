@@ -278,12 +278,12 @@ func buildTaskFromInput(actor domain.Actor, in CreateTaskInput) domain.Task {
 
 func canonicalJSON(in CreateTaskInput) ([]byte, error) {
 	type canon struct {
-		Title       string     `json:"title"`
-		Description string     `json:"description"`
-		Status      string     `json:"status"`
-		Priority    string     `json:"priority"`
-		DueDate     *string    `json:"due_date"`
-		AssigneeID  *string    `json:"assignee_id"`
+		Title       string  `json:"title"`
+		Description string  `json:"description"`
+		Status      string  `json:"status"`
+		Priority    string  `json:"priority"`
+		DueDate     *string `json:"due_date"`
+		AssigneeID  *string `json:"assignee_id"`
 	}
 	var dueStr *string
 	if in.DueDate != nil {

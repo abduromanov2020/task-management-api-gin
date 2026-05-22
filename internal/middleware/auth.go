@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	CtxKeyActor   = "actor"
-	CtxKeyUserID  = "user_id"
-	CtxKeyTeamID  = "team_id"
-	authHeader    = "Authorization"
-	bearerPrefix  = "Bearer "
+	CtxKeyActor  = "actor"
+	CtxKeyUserID = "user_id"
+	CtxKeyTeamID = "team_id"
+	authHeader   = "Authorization"
+	bearerPrefix = "Bearer "
 )
 
 // JWTAuth verifies the bearer token via the configured issuer and stores

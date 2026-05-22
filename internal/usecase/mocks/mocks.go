@@ -30,9 +30,9 @@ type txSnapshotter interface {
 // --- Users ------------------------------------------------------------------
 
 type UserRepo struct {
-	mu    sync.Mutex
-	byID  map[uuid.UUID]domain.User
-	byEm  map[string]domain.User
+	mu   sync.Mutex
+	byID map[uuid.UUID]domain.User
+	byEm map[string]domain.User
 }
 
 func NewUserRepo(seed ...domain.User) *UserRepo {
@@ -230,8 +230,8 @@ func (r *TaskRepo) Delete(_ context.Context, id uuid.UUID) error {
 // --- TaskLogs ---------------------------------------------------------------
 
 type TaskLogRepo struct {
-	mu      sync.Mutex
-	logs    []domain.TaskLog
+	mu       sync.Mutex
+	logs     []domain.TaskLog
 	failNext bool
 }
 
@@ -431,11 +431,11 @@ type Logger struct{}
 
 func NewLogger() *Logger { return &Logger{} }
 
-func (Logger) Debug(string, ...any)         {}
-func (Logger) Info(string, ...any)          {}
-func (Logger) Warn(string, ...any)          {}
-func (Logger) Error(string, ...any)         {}
-func (l Logger) With(...any) domain.Logger  { return l }
+func (Logger) Debug(string, ...any)        {}
+func (Logger) Info(string, ...any)         {}
+func (Logger) Warn(string, ...any)         {}
+func (Logger) Error(string, ...any)        {}
+func (l Logger) With(...any) domain.Logger { return l }
 
 // --- errors -----------------------------------------------------------------
 

@@ -145,4 +145,3 @@ func emailFingerprint(email string) string {
 	}
 	return string(local[0]) + "***" + string(local[len(local)-1])
 }
-
